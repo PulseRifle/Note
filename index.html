@@ -25,6 +25,45 @@
             animation: pulse-ring 2s infinite;
             color: #ef4444; /* red-500 */
         }
+        [hidden] { display: none !important; }
+        body { margin: 0; font-family: system-ui, sans-serif; color: #1e293b; background: #f1f5f9; height: auto !important; overflow: auto !important; }
+        body > header { display:flex; flex-wrap:wrap; gap:16px; align-items:center; justify-content:space-between; padding:16px 24px; background:white; }
+        body > header svg { width:24px; height:24px; }
+        button, input { font:inherit; }
+        button { cursor:pointer; }
+        button:focus-visible, input:focus-visible, textarea:focus-visible { outline:3px solid #6366f1; outline-offset:3px; }
+        #contentsView, #editorView { width:min(100% - 32px, 1000px); margin:24px auto; box-sizing:border-box; }
+        #editorView { display:flex; flex-direction:column; gap:24px; padding:0; overflow:visible; }
+        #editorView > div { min-width:0; background:white; border-radius:16px; overflow:hidden; }
+        #editorView svg { width:20px; height:20px; display:inline-block; vertical-align:middle; }
+        #editorView h2 { margin:0; font-size:17px; }
+        #editorView button { border-radius:8px; padding:8px 12px; }
+        #editorView .color-btn { width:26px; height:26px; padding:0; border:2px solid #cbd5e1; }
+        .color-btn[data-color="#000000"] { background:#000; }
+        .color-btn[data-color="#ef4444"] { background:#ef4444; }
+        .color-btn[data-color="#3b82f6"] { background:#3b82f6; }
+        .color-btn[data-color="#22c55e"] { background:#22c55e; }
+        #summaryContainer { margin:16px; padding:16px; background:#eef2ff; }
+        #summaryContent { padding-top:12px; }
+        .note-actions { display:flex; flex-wrap:wrap; gap:12px; align-items:center; padding:16px; background:white; border-radius:12px; }
+        .note-actions input { max-width:100%; padding:8px; border:1px solid #cbd5e1; border-radius:6px; }
+        .primary-action { border:0; border-radius:8px; background:#4f46e5; color:white; padding:10px 16px; }
+        .secondary-action { border:1px solid #cbd5e1; border-radius:8px; background:white; padding:10px 16px; }
+        #noteTextarea { box-sizing:border-box; min-height:260px; width:100%; padding:20px; border:0; font:inherit; resize:vertical; }
+        #canvasContainer { position:relative; height:420px; flex:none; background:#fafaf9; }
+        #drawingCanvas { position:absolute; inset:0; touch-action:none; }
+        #contentsHeader { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; }
+        .date-group { margin:28px 0; }
+        .note-card { display:block; width:100%; text-align:left; margin:12px 0; padding:18px; border:1px solid #e2e8f0; border-radius:12px; background:white; }
+        .note-card:hover { border-color:#818cf8; }
+        .note-kind { font-size:13px; color:#4f46e5; font-weight:600; }
+        .note-preview { display:block; margin-top:8px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        #saveStatus { min-height:24px; color:#475569; }
+        #summaryContent { white-space:pre-wrap; }
+        .hidden { display:none !important; }
+        #messageModal:not(.hidden) { position:fixed; inset:0; background:#0008; display:flex; align-items:center; justify-content:center; z-index:50; }
+        #messageModal > div { background:white; padding:24px; border-radius:12px; max-width:400px; }
+        @media(max-width:600px) { body > header { padding:12px; } #canvasContainer { height:360px; } .note-actions { align-items:stretch; flex-direction:column; } }
     </style>
 </head>
 <body class="bg-slate-100 h-screen flex flex-col text-slate-800 font-sans overflow-hidden">
@@ -48,11 +87,22 @@
         </div>
     </header>
 
+    <section id="contentsView" aria-label="메모 목차">
+        <div id="contentsHeader"><div><h2>메모 목차</h2><p>작성일자별 텍스트 메모와 필기 메모를 모아보세요.</p></div><button id="newNoteBtn" class="primary-action">새 메모 작성</button></div>
+        <p>메모는 현재 브라우저에 저장됩니다. 한 줄 요약은 직접 입력하거나 텍스트 내용에서 자동으로 표시합니다.</p>
+        <div id="noteList"></div>
+    </section>
+    <div id="editorNavigation" class="note-actions" hidden><button id="backToContentsBtn" class="secondary-action">← 목차</button><span id="saveStatus" role="status" aria-live="polite"></span></div>
     <!-- 메인 워크스페이스 -->
-    <main class="flex-1 flex flex-col md:flex-row gap-4 p-4 lg:p-6 overflow-hidden">
+    <main id="editorView" hidden>
         
         <!-- 왼쪽 패널: 텍스트 및 음성 인식 -->
         <div class="flex-1 flex flex-col gap-4 min-w-[300px]">
+            <div class="note-actions">
+                <label>텍스트 작성일자 <input type="date" id="textDate" required></label>
+                <label>한 줄 요약 <input type="text" id="textPreview" maxlength="120" placeholder="비워두면 본문에서 표시"></label>
+                <button id="saveTextBtn" class="primary-action">텍스트 메모 저장</button>
+            </div>
             <!-- 텍스트 편집 영역 -->
             <div class="flex-1 bg-white rounded-2xl shadow-sm border border-slate-200 flex flex-col overflow-hidden">
                 <div class="px-4 py-3 border-b border-slate-100 flex justify-between items-center bg-slate-50">
@@ -89,6 +139,12 @@
 
         <!-- 오른쪽 패널: 캔버스 손필기 -->
         <div class="flex-1 bg-white rounded-2xl shadow-sm border border-slate-200 flex flex-col overflow-hidden min-w-[300px]">
+            <div class="note-actions">
+                <h2>필기 메모</h2>
+                <label>필기 작성일자 <input type="date" id="drawingDate" required></label>
+                <label>한 줄 요약 <input type="text" id="drawingPreview" maxlength="120" placeholder="필기 내용을 한 줄로 입력하세요"></label>
+                <button id="saveDrawingBtn" class="primary-action">필기 메모 저장</button>
+            </div>
             <!-- 드로잉 툴바 -->
             <div class="px-4 py-3 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
                 <div class="flex items-center gap-2">
@@ -253,6 +309,7 @@
         function initCanvas() {
             // 레티나 디스플레이/아이패드 해상도 대응을 위한 스케일링 설정
             const rect = canvasContainer.getBoundingClientRect();
+            if (!rect.width || !rect.height) return;
             const dpr = window.devicePixelRatio || 1;
             
             // 기존 그림 유지
@@ -422,6 +479,7 @@
         aiSummaryBtn.addEventListener('click', async () => {
             const apiKey = apiKeyInput.value.trim();
             const text = textArea.value.trim();
+            const editorVersion = drawingLoad;
 
             if (!apiKey) {
                 showModal('API 키 필요', '상단 우측에 Gemini API 키를 입력해주세요.');
@@ -448,15 +506,18 @@
             try {
                 const summary = await generateSummary(text, apiKey);
                 
+                if (editorVersion !== drawingLoad || textArea.value.trim() !== text) return;
                 // 마크다운 형태의 단순 파싱 (볼드체, 리스트)
-                const formattedSummary = summary
+                const formattedSummary = summary.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
                     .replace(/\*\*(.*?)\*\*/g, '<strong class="font-bold text-indigo-900">$1</strong>')
                     .replace(/\* (.*?)\n/g, '<li class="ml-4 list-disc marker:text-indigo-500">$1</li>')
                     .replace(/\n/g, '<br/>');
 
                 summaryContent.innerHTML = formattedSummary;
+                document.getElementById('textPreview').value = summary.replace(/[*#]/g, '').replace(/\s+/g, ' ').trim().slice(0,120);
             } catch (error) {
-                summaryContent.innerHTML = `<div class="text-red-500">요약 중 오류가 발생했습니다.<br/><span class="text-sm opacity-80">${error.message}</span></div>`;
+                if (editorVersion !== drawingLoad) return;
+                summaryContent.textContent = '요약 중 오류가 발생했습니다. ' + error.message;
             } finally {
                 // UI 상태 복구
                 aiSummaryBtn.disabled = false;
@@ -496,6 +557,119 @@
         }
 
         modalCloseBtn.addEventListener('click', closeModal);
+        const storageKey = 'smart-ai-notes-v1';
+        const contentsView = document.getElementById('contentsView');
+        const editorView = document.getElementById('editorView');
+        const navigation = document.getElementById('editorNavigation');
+        const textDate = document.getElementById('textDate');
+        const drawingDate = document.getElementById('drawingDate');
+        const textPreview = document.getElementById('textPreview');
+        const drawingPreview = document.getElementById('drawingPreview');
+        const saveStatus = document.getElementById('saveStatus');
+        let notes = [];
+        let activeTextId = null;
+        let activeDrawingId = null;
+        let drawingLoad = 0;
+        let storageReadable = true;
+        try {
+            const saved = JSON.parse(localStorage.getItem(storageKey) || '[]');
+            if (!Array.isArray(saved) || saved.some(n => !n || typeof n.id !== 'string' || !['text','drawing'].includes(n.type) || !/^\d{4}-\d{2}-\d{2}$/.test(n.date) || typeof n.content !== 'string' || typeof n.preview !== 'string')) throw new Error('Invalid notes');
+            notes = saved;
+        } catch {
+            storageReadable = false;
+            showModal('저장 내역 확인 필요', '저장된 메모를 읽을 수 없습니다. 기존 데이터를 보호하기 위해 저장을 중지했습니다. 브라우저 저장소 설정을 확인해주세요.');
+        }
+        function today() {
+            const date = new Date();
+            return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
+        }
+        function oneLine(value) { return value.replace(/\s+/g,' ').trim().slice(0,120); }
+        function renderContents() {
+            const list = document.getElementById('noteList');
+            list.replaceChildren();
+            if (!notes.length) {
+                const empty = document.createElement('p');
+                empty.textContent = '아직 저장된 메모가 없습니다. 새 메모를 작성해보세요.';
+                list.append(empty);
+                return;
+            }
+            let date = '', group;
+            [...notes].sort((a,b) => b.date.localeCompare(a.date) || (b.updatedAt || '').localeCompare(a.updatedAt || '')).forEach(note => {
+                if (date !== note.date) {
+                    date = note.date;
+                    group = document.createElement('section'); group.className = 'date-group';
+                    const heading = document.createElement('h3'); heading.textContent = date;
+                    group.append(heading); list.append(group);
+                }
+                const card = document.createElement('button'); card.className = 'note-card';
+                const kind = document.createElement('span'); kind.className = 'note-kind'; kind.textContent = note.type === 'text' ? '텍스트 메모' : '필기 메모';
+                const preview = document.createElement('span'); preview.className = 'note-preview';
+                preview.textContent = oneLine(note.preview || (note.type === 'text' ? note.content : '필기 메모 · 요약 미입력'));
+                card.append(kind,preview); card.addEventListener('click',() => openEditor(note)); group.append(card);
+            });
+        }
+        function openEditor(note = null) {
+            drawingLoad++;
+            contentsView.hidden = true; editorView.hidden = false; navigation.hidden = false;
+            activeTextId = note?.type === 'text' ? note.id : null;
+            activeDrawingId = note?.type === 'drawing' ? note.id : null;
+            textArea.value = note?.type === 'text' ? note.content : '';
+            textPreview.value = note?.type === 'text' ? note.preview : '';
+            drawingPreview.value = note?.type === 'drawing' ? note.preview : '';
+            textDate.value = note?.type === 'text' ? note.date : today();
+            drawingDate.value = note?.type === 'drawing' ? note.date : today();
+            summaryContainer.classList.add('hidden'); summaryContent.replaceChildren();
+            saveStatus.textContent = '';
+            initCanvas(); ctx.clearRect(0,0,canvas.width,canvas.height); ctx.beginPath();
+            if (note?.type === 'drawing') {
+                const version = drawingLoad;
+                const image = new Image();
+                image.onload = () => {
+                    if (version !== drawingLoad) return;
+                    ctx.save(); ctx.globalCompositeOperation = 'source-over';
+                    ctx.drawImage(image,0,0,canvas.width / (window.devicePixelRatio || 1),canvas.height / (window.devicePixelRatio || 1)); ctx.restore();
+                    rememberSaved('drawing');
+                };
+                image.src = note.content;
+            }
+            rememberSaved('text'); rememberSaved('drawing');
+            window.scrollTo(0,0);
+        }
+        function saveNote(type) {
+            const dateInput = type === 'text' ? textDate : drawingDate;
+            if (!dateInput.reportValidity()) return;
+            if (type === 'text' && !textArea.value.trim()) { showModal('내용 필요','텍스트 메모를 작성해주세요.'); return; }
+            if (!storageReadable) { showModal('저장 불가','기존 메모를 읽을 수 없어 저장할 수 없습니다. 브라우저 저장소 설정을 확인해주세요.'); return; }
+            const id = (type === 'text' ? activeTextId : activeDrawingId) || crypto.randomUUID();
+            const note = {id,type,date:dateInput.value,content:type === 'text' ? textArea.value : canvas.toDataURL('image/png'),preview:oneLine(type === 'text' ? textPreview.value : drawingPreview.value),updatedAt:new Date().toISOString()};
+            const next = notes.filter(n => n.id !== id).concat(note);
+            try { localStorage.setItem(storageKey,JSON.stringify(next)); }
+            catch { showModal('저장 실패','브라우저 저장 공간이 부족하거나 저장이 차단되었습니다. 현재 내용을 유지한 채 저장소 설정을 확인해주세요.'); return; }
+            notes = next;
+            if (type === 'text') activeTextId = id; else activeDrawingId = id;
+            saveStatus.textContent = `${type === 'text' ? '텍스트' : '필기'} 메모를 저장했습니다. 다른 메모는 해당 저장 버튼으로 저장해주세요.`;
+            // Each section is saved independently; navigation checks both current values.
+            rememberSaved(type);
+        }
+        let savedText = '', savedDrawing = '';
+        function sectionState(type) {
+            return type === 'text' ? JSON.stringify([textArea.value,textDate.value,textPreview.value]) : JSON.stringify([canvas.toDataURL(),drawingDate.value,drawingPreview.value]);
+        }
+        function rememberSaved(type) { if (type === 'text') savedText = sectionState(type); else savedDrawing = sectionState(type); }
+        function hasChanges() { return sectionState('text') !== savedText || sectionState('drawing') !== savedDrawing; }
+        document.getElementById('newNoteBtn').addEventListener('click',() => openEditor());
+        document.getElementById('saveTextBtn').addEventListener('click',() => saveNote('text'));
+        document.getElementById('saveDrawingBtn').addEventListener('click',() => saveNote('drawing'));
+        document.getElementById('backToContentsBtn').addEventListener('click',() => {
+            if (hasChanges() && !window.confirm('저장하지 않은 변경사항이 있습니다. 저장하지 않고 목차로 이동할까요?')) return;
+            stopRecording(); drawingLoad++;
+            editorView.hidden = true; navigation.hidden = true; contentsView.hidden = false; renderContents();
+        });
+        window.addEventListener('beforeunload',event => {
+            if (!editorView.hidden && hasChanges()) { event.preventDefault(); event.returnValue = ''; }
+        });
+        renderContents();
+
 
     </script>
 </body>
