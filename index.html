@@ -275,7 +275,7 @@
         
         const canvas = document.getElementById('drawingCanvas');
         const canvasContainer = document.getElementById('canvasContainer');
-        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        const ctx = canvas.getContext('2d');
         
         const toolBtns = document.querySelectorAll('.tool-btn');
         const colorBtns = document.querySelectorAll('.color-btn');
@@ -397,6 +397,7 @@
         const undoBtn = document.getElementById('undoDrawingBtn');
         const redoBtn = document.getElementById('redoDrawingBtn');
         let history = [], historyIndex = -1, points = [], pointerId = null;
+        let paintedPoints=0, strokeFrame=0;
         function exportInk() { return ink.toDataURL('image/png'); }
         function updateHistoryButtons() { undoBtn.disabled = historyIndex <= 0; redoBtn.disabled = historyIndex >= history.length-1; }
         function resetHistory() { history = [inkCtx.getImageData(0,0,ink.width,ink.height)]; historyIndex=0; updateHistoryButtons(); }
@@ -415,40 +416,43 @@
         function initCanvas() {
             const rect = canvasContainer.getBoundingClientRect();
             if (!rect.width || !rect.height) return;
-            const dpr = Math.min(window.devicePixelRatio || 1,3);
-            canvas.width = Math.round(rect.width*dpr); canvas.height = Math.round(rect.height*dpr);
+            // The preview never needs more pixels than the saved A4 original.
+            const scale=Math.min(window.devicePixelRatio || 1,2,ink.width/rect.width);
+            const width=Math.round(rect.width*scale),height=Math.round(rect.height*scale);
+            if(canvas.width===width && canvas.height===height) return;
+            canvas.width=width; canvas.height=height;
             canvas.style.width = '100%'; canvas.style.height = '100%'; renderInk();
         }
         new ResizeObserver(initCanvas).observe(canvasContainer);
-        function point(e) {
-            const rect = canvas.getBoundingClientRect();
+        function point(e,rect=canvas.getBoundingClientRect()) {
             // A real zero is light contact, not a missing pressure measurement.
             const pressure = e.pointerType === 'pen' && Number.isFinite(e.pressure) ? Math.max(.02,Math.min(1,e.pressure)) : .5;
             return {x:(e.clientX-rect.left)*ink.width/rect.width,y:(e.clientY-rect.top)*ink.height/rect.height,p:pressure};
         }
         function paintStroke() {
-            strokeCtx.clearRect(0,0,ink.width,ink.height);
+            if(!points.length || paintedPoints===points.length) return;
             strokeCtx.lineCap='round'; strokeCtx.lineJoin='round'; strokeCtx.strokeStyle=currentColor; strokeCtx.fillStyle=currentColor;
             const first=points[0], last=points[points.length-1];
             const shape=['line','rectangle','ellipse'].includes(currentTool);
             if(shape) {
+                strokeCtx.clearRect(0,0,ink.width,ink.height);
                 strokeCtx.lineWidth=currentLineWidth; strokeCtx.beginPath();
                 if(currentTool==='line') { strokeCtx.moveTo(first.x,first.y); strokeCtx.lineTo(last.x,last.y); }
                 if(currentTool==='rectangle') strokeCtx.rect(first.x,first.y,last.x-first.x,last.y-first.y);
                 if(currentTool==='ellipse') strokeCtx.ellipse((first.x+last.x)/2,(first.y+last.y)/2,Math.abs(last.x-first.x)/2,Math.abs(last.y-first.y)/2,0,0,Math.PI*2);
-                strokeCtx.stroke(); return;
+                strokeCtx.stroke(); paintedPoints=points.length; return;
             }
             // Sweep a broad, thin nib at a fixed angle. Its shape, rather than a
             // round stroke, creates the thick/thin contrast of a calligraphy pen.
             if (currentTool === 'fountain') {
                 const stamp = p => {
                     const radius = currentLineWidth * (.25 + 1.75*Math.pow(p.p,.75));
-                    strokeCtx.beginPath();
+                    strokeCtx.moveTo(p.x+radius*Math.cos(-Math.PI/4),p.y+radius*Math.sin(-Math.PI/4));
                     strokeCtx.ellipse(p.x,p.y,radius,Math.max(.3,radius*.12),-Math.PI/4,0,Math.PI*2);
-                    strokeCtx.fill();
                 };
-                stamp(first);
-                for(let i=1;i<points.length;i++) {
+                strokeCtx.beginPath();
+                if(!paintedPoints) stamp(first);
+                for(let i=Math.max(1,paintedPoints);i<points.length;i++) {
                     const a=points[i-1],b=points[i];
                     const steps=Math.max(1,Math.ceil(Math.hypot(b.x-a.x,b.y-a.y)/.6));
                     for(let step=1;step<=steps;step++) {
@@ -456,15 +460,24 @@
                         stamp({x:a.x+(b.x-a.x)*t,y:a.y+(b.y-a.y)*t,p:a.p+(b.p-a.p)*t});
                     }
                 }
+                strokeCtx.fill(); paintedPoints=points.length;
                 return;
             }
             const width = p => currentLineWidth * (currentTool==='pencil' ? .15+1.85*Math.pow(p,.8) : currentTool==='pen' ? .2+2.2*Math.pow(p,.8) : 1);
-            strokeCtx.beginPath(); strokeCtx.arc(first.x,first.y,width(first.p)/2,0,Math.PI*2); strokeCtx.fill();
-            for(let i=1;i<points.length;i++) {
+            if(!paintedPoints) { strokeCtx.beginPath(); strokeCtx.arc(first.x,first.y,width(first.p)/2,0,Math.PI*2); strokeCtx.fill(); }
+            for(let i=Math.max(1,paintedPoints);i<points.length;i++) {
                 const a=points[i-1], b=points[i];
                 strokeCtx.lineWidth=width((a.p+b.p)/2);
                 strokeCtx.beginPath(); strokeCtx.moveTo(a.x,a.y); strokeCtx.lineTo(b.x,b.y); strokeCtx.stroke();
             }
+            paintedPoints=points.length;
+        }
+        function scheduleStrokeFrame() {
+            if(strokeFrame) return;
+            strokeFrame=requestAnimationFrame(()=>{
+                strokeFrame=0;
+                if(isDrawing) { paintStroke(); renderInk(); }
+            });
         }
         function compositeStroke(target,w,h) {
             target.save(); target.globalAlpha=currentTool==='highlighter' ? .25 : currentTool==='pencil' ? .6 : 1;
@@ -474,22 +487,27 @@
         function startDrawing(e) {
             if (pageLoading || pointerId!==null || (e.pointerType==='mouse' && e.button!==0) || (document.getElementById('stylusOnly').checked && e.pointerType!=='pen')) return;
             e.preventDefault(); scrollGesture=null; pointerId=e.pointerId; canvas.setPointerCapture(pointerId);
-            isDrawing=true; points=[point(e)]; paintStroke(); renderInk();
+            isDrawing=true; points=[point(e)]; paintedPoints=0;
+            strokeCtx.clearRect(0,0,ink.width,ink.height);
+            scheduleStrokeFrame();
         }
         function draw(e) {
             if (!isDrawing || e.pointerId!==pointerId) return;
             e.preventDefault();
             const events=e.getCoalescedEvents?.() || [];
+            const rect=canvas.getBoundingClientRect();
             for(const sample of events.length ? events : [e]) {
-                const next = point(sample);
+                const next = point(sample,rect);
                 next.p = points[points.length-1].p*.35 + next.p*.65;
                 points.push(next);
             }
-            paintStroke(); renderInk();
+            scheduleStrokeFrame();
         }
         function stopDrawing(e) {
             if(!isDrawing || (e && e.pointerId!==pointerId)) return;
-            if(e?.type==='pointerup') { const end=point(e); end.p=points[points.length-1].p; points.push(end); paintStroke(); }
+            if(e?.type==='pointerup') { const end=point(e); end.p=points[points.length-1].p; points.push(end); }
+            // Flush queued input before saving, switching tools or lifting the pen.
+            cancelAnimationFrame(strokeFrame); strokeFrame=0; paintStroke();
             compositeStroke(inkCtx,ink.width,ink.height);
             isDrawing=false;
             if (canvas.hasPointerCapture(pointerId)) canvas.releasePointerCapture(pointerId);

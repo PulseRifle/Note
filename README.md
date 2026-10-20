@@ -54,3 +54,7 @@ Playwright와 Chromium이 설치된 환경에서 `node tests/handwriting.cjs`를
 HTTPS 또는 localhost와 M4A MediaRecorder 지원 브라우저가 필요합니다. 앱을 열어둔 채 필기하는 동안 녹음할 수 있지만, iOS 화면 잠금·다른 앱 전환 중 녹음 지속은 보장되지 않습니다. 권한 거부나 마이크 오류는 화면에 안내합니다.
 
 `node tests/notebook.cjs`로 목차 종류 선택, 모바일 도구 모음, A4 여러 페이지 저장·복원, 이전 메모 호환, 녹음·재생·다운로드·권한 오류를 확인할 수 있습니다. 테스트 녹음은 Chromium 가상 마이크를 사용하며 실제 기기·마이크 검증은 별도로 필요합니다.
+
+## 필기 성능
+
+입력된 새 구간만 누적해서 그리며 화면 갱신은 requestAnimationFrame으로 묶습니다. 미리보기 해상도는 저장 원본 범위로 제한해 고해상도 화면에서의 불필요한 렌더링을 줄입니다. 원본 A4 저장 해상도는 유지됩니다. `node tests/ink-performance.cjs`로 입력 구간 중복 처리, 프레임 병합, 미리보기 해상도 및 펜을 뗄 때 마지막 획 저장을 검증합니다.
