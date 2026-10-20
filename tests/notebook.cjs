@@ -33,7 +33,7 @@ const http=require('node:http'),fs=require('node:fs'),path=require('node:path');
   assert.equal(await page.locator('#audioRecordBtn').getAttribute('aria-pressed'),'true');
   await page.waitForTimeout(1200);await page.locator('#audioRecordBtn').click();await page.waitForFunction(()=>document.getElementById('recordingCount').textContent==='1' && !window.hasPendingAudio());
   assert.equal(await page.locator('#recordingList audio').count(),1);await page.locator('#recordingList audio').evaluate(a=>a.play());await page.waitForTimeout(100);assert(await page.locator('#recordingList audio').evaluate(a=>!a.paused && !a.error));
-  const downloadPromise=page.waitForEvent('download');await page.locator('#recordingList a').click();const download=await downloadPromise;assert.equal(await download.failure(),null);
+  const downloadPromise=page.waitForEvent('download');await page.locator('#recordingList a').click();const download=await downloadPromise;assert.equal(await download.failure(),null);assert(download.suggestedFilename().endsWith('.m4a'));const audioFile=fs.readFileSync(await download.path());assert.equal(audioFile.toString('ascii',4,8),'ftyp','download must contain real MP4 data');
   await page.locator('.drawing-metadata summary').click();await page.locator('#drawingPreview').fill('두 페이지 필기');await page.locator('#saveDrawingBtn').click();
   await page.locator('#backToContentsBtn').click();assert.equal(await page.locator('.note-card').count(),2);
   await page.reload();await page.waitForFunction(()=>document.getElementById('recordingCount').textContent==='1');
@@ -49,7 +49,11 @@ const http=require('node:http'),fs=require('node:fs'),path=require('node:path');
   // Permission denial leaves the editor usable and does not claim a recording exists.
   await page.evaluate(()=>{navigator.mediaDevices.getUserMedia=async()=>{throw new DOMException('Denied','NotAllowedError');};});
   await page.locator('#audioRecordBtn').click();await page.waitForFunction(()=>document.getElementById('audioRecordStatus').textContent.includes('권한'));assert.equal(await page.locator('#audioRecordBtn').getAttribute('aria-pressed'),'false');
+  // Unsupported M4A must not silently record WebM or request the microphone.
+  await page.evaluate(()=>{MediaRecorder.isTypeSupported=()=>false;navigator.mediaDevices.getUserMedia=async()=>{throw new Error('must not request microphone');};});
+  await page.locator('#audioRecordBtn').click();await page.waitForFunction(()=>document.getElementById('audioRecordStatus').textContent.includes('M4A 녹음을 지원하지'));
+  assert.equal(await page.locator('#audioRecordBtn').getAttribute('aria-pressed'),'false');
   assert.deepEqual(errors,[]);
-  console.log('PASS: floating type picker, separate editors, compact icons, A4 pages, page navigation, persistence, legacy import, recording while drawing/changing pages, audio playback/download/reload, permission denial, mobile fit');
+  console.log('PASS: floating type picker, separate editors, compact icons, A4 pages, page navigation, persistence, legacy import, recording while drawing/changing pages, M4A container/playback/download/reload, permission denial, unsupported M4A, mobile fit');
  } finally {if(browser) await browser.close();await new Promise(resolve=>server.close(resolve));}
 })().catch(e=>{console.error(e);process.exitCode=1;});
