@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>스마트 AI 노트</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="recording.js" defer></script>
     <style>
         /* 터치 및 스크롤 최적화 */
         body { overscroll-behavior: none; }
@@ -81,6 +82,54 @@
         #canvasContainer[data-paper="plain"] { background-image:none; }
         #editorView > .drawing-expanded { position:fixed; inset:0; z-index:40; overflow:auto; border-radius:0; padding:12px; }
         @media(max-width:600px) { .drawing-toolbar { padding:12px; } #editorView .tool-btn { flex:1 0 20%; padding:12px 4px; } .tool-row { gap:8px; } }
+        .sr-label { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
+        body > header { gap:8px; padding:10px 16px; }
+        body > header h1 { font-size:18px; margin:0; }
+        #contentsView { padding-bottom:90px; }
+        #newNoteBtn { position:fixed; right:max(24px,env(safe-area-inset-right)); bottom:calc(24px + env(safe-area-inset-bottom)); width:60px; height:60px; border:0; border-radius:50%; background:#4f46e5; color:white; font-size:36px; box-shadow:0 6px 24px #312e8150; z-index:30; }
+        #newNoteMenu { position:fixed; right:24px; bottom:calc(98px + env(safe-area-inset-bottom)); padding:8px; background:white; border:1px solid #e2e8f0; border-radius:16px; box-shadow:0 8px 30px #0f172a20; z-index:30; }
+        #newNoteMenu button { display:block; width:100%; text-align:left; background:white; border:0; padding:14px; border-radius:8px; }
+        #newNoteMenu button:hover { background:#eef2ff; }
+        #drawingPanel { overflow:visible !important; }
+        .drawing-metadata { padding:8px 12px; color:#64748b; font-size:13px; }
+        .drawing-metadata summary { cursor:pointer; }
+        .drawing-title { display:flex; align-items:center; justify-content:space-between; padding:8px 12px; }
+        .drawing-title small { color:#94a3b8; font-weight:400; }
+        .drawing-toolbar { position:sticky; top:0; z-index:10; padding:8px; border-radius:12px 12px 0 0; }
+        .drawing-toolbar .tool-row { gap:4px; margin-bottom:6px; }
+        #editorView .tool-btn { flex:none; width:36px; height:36px; padding:0; font-size:24px; display:grid; place-items:center; }
+        #editorView #undoDrawingBtn, #editorView #redoDrawingBtn { width:32px; height:32px; padding:0; font-size:24px; }
+        .drawing-options { font-size:12px; }
+        .drawing-options summary { cursor:pointer; padding:2px 0; }
+        .drawing-options[open] .tool-row { margin-top:8px; }
+        .size-control { font-size:12px; gap:4px; }
+        #penSize { width:70px; } #penSizeValue { min-width:32px; font-size:11px; }
+        #customColor { width:28px; height:28px; padding:0; border:0; }
+        .color-palette { gap:4px; padding:3px; }
+        #editorView .color-btn { width:22px; height:22px; }
+        #canvasContainer { aspect-ratio:210 / 297; height:auto; scroll-margin-top:155px; }
+        .page-navigation { display:flex; flex-wrap:wrap; justify-content:center; align-items:center; gap:8px; padding:12px 6px; border-top:1px solid #e2e8f0; background:white; }
+        .page-navigation button { border:1px solid #cbd5e1; background:#f8fafc; font-size:13px; }
+        button:disabled { opacity:.4; cursor:default; }
+        .recording-controls { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+        #audioRecordBtn[aria-pressed="true"] { background:#fef2f2; color:#b91c1c; border-color:#ef4444; }
+        #audioRecordStatus { font-size:12px; color:#b91c1c; }
+        #recordingsPanel { box-sizing:border-box; width:min(100% - 32px,1000px); margin:8px auto 0; font-size:13px; }
+        #recordingsPanel summary { cursor:pointer; }
+        .recording-help { color:#64748b; line-height:1.6; }
+        .audio-entry { display:flex; flex-wrap:wrap; align-items:center; gap:10px; background:white; padding:12px; border-radius:10px; margin:8px 0; }
+        .audio-entry audio { max-width:100%; height:36px; }
+        .audio-entry a { color:#4f46e5; }
+        #editorView > .drawing-expanded { overflow:auto !important; }
+        @media(max-width:600px) { #editorView { width:calc(100% - 16px); margin:12px auto; } .drawing-toolbar { padding:6px; } .drawing-metadata .note-actions { padding:8px 0; } }
+
+        .audio-recording .recording-controls, .drawing-is-expanded .recording-controls { position:fixed; top:8px; right:12px; z-index:60; padding:6px; border-radius:10px; background:white; box-shadow:0 2px 12px #0f172a20; }
+        .drawing-is-expanded #drawingPanel { padding-top:64px; }
+        #editorView .tool-btn svg { width:24px; height:24px; }
+        #editorNavigation { flex-direction:row; align-items:center; padding:8px 12px; gap:8px; width:min(100% - 16px,1000px); margin:8px auto; box-sizing:border-box; }
+        #saveStatus:empty { display:none; }
+        #editorView .tool-btn { width:32px; height:34px; font-size:22px; }
+        .drawing-toolbar .tool-row[role="group"] { gap:3px; }
     </style>
 </head>
 <body class="bg-slate-100 h-screen flex flex-col text-slate-800 font-sans overflow-hidden">
@@ -93,7 +142,7 @@
             </svg>
             <h1 class="text-xl font-bold text-slate-800 tracking-tight">스마트 AI 노트</h1>
         </div>
-        <div class="flex items-center gap-4">
+        <div id="textAiTools" class="flex items-center gap-4" hidden>
             <div class="relative group">
                 <input type="password" id="apiKeyInput" placeholder="Gemini API 키 입력" class="w-48 px-3 py-1.5 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all">
             </div>
@@ -102,19 +151,23 @@
                 AI 요약
             </button>
         </div>
+        <div class="recording-controls"><button id="audioRecordBtn" class="secondary-action" aria-pressed="false">🎙️ 녹음</button><span id="audioRecordStatus" role="status" aria-live="polite"></span></div>
     </header>
+    <details id="recordingsPanel"><summary>🎧 녹음 내역 <span id="recordingCount">0</span></summary><p class="recording-help">필기 중에도 녹음됩니다. 녹음은 이 브라우저에 저장되며, 화면 잠금이나 다른 앱으로 전환하면 중단될 수 있습니다.</p><div id="recordingList"></div></details>
 
     <section id="contentsView" aria-label="메모 목차">
-        <div id="contentsHeader"><div><h2>메모 목차</h2><p>작성일자별 텍스트 메모와 필기 메모를 모아보세요.</p></div><button id="newNoteBtn" class="primary-action">새 메모 작성</button></div>
+        <div id="contentsHeader"><div><h2>메모 목차</h2><p>작성일자별 텍스트 메모와 필기 메모를 모아보세요.</p></div></div>
         <p>메모는 현재 브라우저에 저장됩니다. 한 줄 요약은 직접 입력하거나 텍스트 내용에서 자동으로 표시합니다.</p>
         <div id="noteList"></div>
+        <div id="newNoteMenu" hidden role="group" aria-label="새 메모 종류"><button id="newTextNoteBtn">📝 텍스트 메모</button><button id="newDrawingNoteBtn">🖋️ 필기 메모</button></div>
+        <button id="newNoteBtn" aria-label="새 메모 작성" aria-expanded="false" aria-controls="newNoteMenu">＋</button>
     </section>
     <div id="editorNavigation" class="note-actions" hidden><button id="backToContentsBtn" class="secondary-action">← 목차</button><span id="saveStatus" role="status" aria-live="polite"></span></div>
     <!-- 메인 워크스페이스 -->
     <main id="editorView" hidden>
         
         <!-- 왼쪽 패널: 텍스트 및 음성 인식 -->
-        <div class="flex-1 flex flex-col gap-4 min-w-[300px]">
+        <div id="textPanel" class="flex-1 flex flex-col gap-4 min-w-[300px]">
             <div class="note-actions">
                 <label>텍스트 작성일자 <input type="date" id="textDate" required></label>
                 <label>한 줄 요약 <input type="text" id="textPreview" maxlength="120" placeholder="비워두면 본문에서 표시"></label>
@@ -155,49 +208,51 @@
         </div>
 
         <!-- 오른쪽 패널: 캔버스 손필기 -->
-        <div class="flex-1 bg-white rounded-2xl shadow-sm border border-slate-200 flex flex-col overflow-hidden min-w-[300px]">
-            <div class="note-actions">
+        <div id="drawingPanel" class="flex-1 bg-white rounded-2xl shadow-sm border border-slate-200 flex flex-col overflow-hidden min-w-[300px]">
+            <details class="drawing-metadata"><summary>필기 메모 · 작성일자 / 요약</summary><div class="note-actions">
                 <h2>필기 메모</h2>
                 <label>필기 작성일자 <input type="date" id="drawingDate" required></label>
                 <label>한 줄 요약 <input type="text" id="drawingPreview" maxlength="120" placeholder="필기 내용을 한 줄로 입력하세요"></label>
-                <button id="saveDrawingBtn" class="primary-action">필기 메모 저장</button>
-            </div>
+            </div></details>
+            <div class="drawing-title"><h2>필기 메모 <small>A4</small></h2><button id="saveDrawingBtn" class="primary-action">저장</button></div>
             <div class="drawing-toolbar" aria-label="필기 도구">
                 <div class="tool-row" role="group" aria-label="도구 선택">
-                    <button class="tool-btn" data-tool="pen" aria-pressed="true">펜</button>
-                    <button class="tool-btn" data-tool="fountain" aria-pressed="false">만년필</button>
-                    <button class="tool-btn" data-tool="pencil" aria-pressed="false">연필</button>
-                    <button class="tool-btn" data-tool="highlighter" aria-pressed="false">형광펜</button>
-                    <button class="tool-btn" data-tool="eraser" aria-pressed="false">지우개</button>
-                    <button class="tool-btn" data-tool="line" aria-pressed="false">직선</button>
-                    <button class="tool-btn" data-tool="rectangle" aria-pressed="false">사각형</button>
-                    <button class="tool-btn" data-tool="ellipse" aria-pressed="false">원</button>
+                    <button class="tool-btn" data-tool="pen" title="펜" aria-label="펜" aria-pressed="true"><span aria-hidden="true">🖊️</span></button>
+                    <button class="tool-btn" data-tool="fountain" title="만년필" aria-label="만년필" aria-pressed="false"><span aria-hidden="true">🖋️</span></button>
+                    <button class="tool-btn" data-tool="pencil" title="연필" aria-label="연필" aria-pressed="false"><span aria-hidden="true">✏️</span></button>
+                    <button class="tool-btn" data-tool="highlighter" title="형광펜" aria-label="형광펜" aria-pressed="false"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m5 12 9-9 7 7-9 9z" fill="#fde047" stroke="#a16207" stroke-width="1.5"/><path d="m5 12 7 7-3 2-7-7z" fill="#fef9c3" stroke="#a16207" stroke-width="1.5"/><path d="m2 14 3 3-4 3z" fill="#a16207"/></svg></button>
+                    <button class="tool-btn" data-tool="eraser" title="지우개" aria-label="지우개" aria-pressed="false"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 14 13 4a2 2 0 0 1 3 0l5 5a2 2 0 0 1 0 3L11 22H8z" fill="#f9a8d4" stroke="#9d174d" stroke-width="1.5"/><path d="m3 14 6-6 8 8-6 6H8z" fill="#fff1f2" stroke="#9d174d" stroke-width="1.5"/></svg></button>
+                    <button class="tool-btn" data-tool="line" title="직선" aria-label="직선" aria-pressed="false"><span aria-hidden="true">╱</span></button>
+                    <button class="tool-btn" data-tool="rectangle" title="사각형" aria-label="사각형" aria-pressed="false"><span aria-hidden="true">□</span></button>
+                    <button class="tool-btn" data-tool="ellipse" title="원" aria-label="원" aria-pressed="false"><span aria-hidden="true">○</span></button>
+                    <button id="undoDrawingBtn" title="실행 취소" aria-label="실행 취소" disabled>↶</button><button id="redoDrawingBtn" title="다시 실행" aria-label="다시 실행" disabled>↷</button>
                 </div>
-                <div class="tool-row">
+                <div class="tool-row compact-row">
                     <label class="size-control">굵기 <input id="penSize" type="range" min="1" max="40" step="0.5" value="3"><output id="penSizeValue" for="penSize">3 px</output></label>
                     <div role="group" aria-label="잉크 색상" class="color-palette">
-                        <button class="color-btn" data-color="#000000" aria-label="검정" aria-pressed="true"></button>
-                        <button class="color-btn" data-color="#ef4444" aria-label="빨강" aria-pressed="false"></button>
-                        <button class="color-btn" data-color="#3b82f6" aria-label="파랑" aria-pressed="false"></button>
-                        <button class="color-btn" data-color="#22c55e" aria-label="초록" aria-pressed="false"></button>
-                        <button class="color-btn" data-color="#a855f7" aria-label="보라" aria-pressed="false"></button>
-                        <button class="color-btn" data-color="#eab308" aria-label="노랑" aria-pressed="false"></button>
+                        <button class="color-btn" data-color="#000000" style="background:#000000" aria-label="검정" aria-pressed="true"></button>
+                        <button class="color-btn" data-color="#ef4444" style="background:#ef4444" aria-label="빨강" aria-pressed="false"></button>
+                        <button class="color-btn" data-color="#3b82f6" style="background:#3b82f6" aria-label="파랑" aria-pressed="false"></button>
+                        <button class="color-btn" data-color="#22c55e" style="background:#22c55e" aria-label="초록" aria-pressed="false"></button>
+                        <button class="color-btn" data-color="#a855f7" style="background:#a855f7" aria-label="보라" aria-pressed="false"></button>
+                        <button class="color-btn" data-color="#eab308" style="background:#eab308" aria-label="노랑" aria-pressed="false"></button>
                     </div>
-                    <label>사용자 색상 <input id="customColor" type="color" value="#000000"></label>
+                    <label title="사용자 색상"><span class="sr-label">사용자 색상</span><input id="customColor" aria-label="사용자 색상" type="color" value="#000000"></label>
                 </div>
-                <div class="tool-row">
-                    <button id="undoDrawingBtn" disabled>↶ 실행 취소</button><button id="redoDrawingBtn" disabled>↷ 다시 실행</button>
+                <details class="drawing-options"><summary>⚙️ 필기 설정</summary><div class="tool-row">
                     <label>용지 <select id="paperStyle"><option value="grid">모눈</option><option value="ruled">줄노트</option><option value="plain">무지</option></select></label>
                     <label><input id="stylusOnly" type="checkbox"> 펜으로만 쓰기</label>
                     <button id="expandDrawingBtn" aria-pressed="false">넓게 쓰기</button>
                     <button id="downloadDrawingBtn">이미지 저장</button><button id="clearCanvasBtn">전체 지우기</button>
                 </div>
-                <p id="drawingHint">손가락·마우스·스타일러스로 필기하세요. 도형은 끌어서 그립니다.</p>
+                </details>
+                <p id="drawingHint" class="sr-label">손가락·마우스·스타일러스로 필기하세요. 도형은 끌어서 그립니다.</p>
             </div>
             <!-- 캔버스 영역 -->
             <div id="canvasContainer" class="flex-1 relative cursor-crosshair bg-stone-50 bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] [background-size:16px_16px]">
-                <canvas id="drawingCanvas" class="absolute inset-0 touch-none w-full h-full"></canvas>
+                <canvas aria-label="필기 페이지" id="drawingCanvas" class="absolute inset-0 touch-none w-full h-full"></canvas>
             </div>
+            <nav class="page-navigation" aria-label="필기 페이지 이동"><button id="previousPageBtn" aria-label="이전 페이지">← 이전</button><output id="pageIndicator" aria-live="polite">1 / 1</output><button id="nextPageBtn" aria-label="다음 페이지">다음 →</button><button id="addPageBtn">＋ 페이지 추가</button></nav>
         </div>
     </main>
 
@@ -333,7 +388,7 @@
            2. 캔버스 손필기 로직 (애플 펜슬 지원)
            ========================================================================== */
         // Store ink at a fixed resolution so rotation and viewport changes never crop it.
-        const ink = document.createElement('canvas'); ink.width = 1000; ink.height = 600;
+        const ink = document.createElement('canvas'); ink.width = 840; ink.height = 1188;
         const inkCtx = ink.getContext('2d', {willReadFrequently:true});
         const strokeLayer = document.createElement('canvas'); strokeLayer.width = ink.width; strokeLayer.height = ink.height;
         const strokeCtx = strokeLayer.getContext('2d');
@@ -417,7 +472,7 @@
             target.drawImage(strokeLayer,0,0,w,h); target.restore();
         }
         function startDrawing(e) {
-            if (pointerId!==null || (e.pointerType==='mouse' && e.button!==0) || (document.getElementById('stylusOnly').checked && e.pointerType!=='pen')) return;
+            if (pageLoading || pointerId!==null || (e.pointerType==='mouse' && e.button!==0) || (document.getElementById('stylusOnly').checked && e.pointerType!=='pen')) return;
             e.preventDefault(); scrollGesture=null; pointerId=e.pointerId; canvas.setPointerCapture(pointerId);
             isDrawing=true; points=[point(e)]; paintStroke(); renderInk();
         }
@@ -463,6 +518,7 @@
         colorBtns.forEach(btn=>btn.addEventListener('click',()=>setInkColor(btn.dataset.color)));
         document.getElementById('customColor').addEventListener('input',e=>setInkColor(e.target.value));
         function travelHistory(direction) {
+            if (pageLoading) return;
             stopDrawing(); const next=historyIndex+direction;
             if(next<0 || next>=history.length) return;
             historyIndex=next; inkCtx.putImageData(history[historyIndex],0,0); renderInk(); updateHistoryButtons();
@@ -511,7 +567,7 @@
         drawingPanel.style.touchAction=stylusOnly.checked ? 'none' : 'auto';
         const expandBtn=document.getElementById('expandDrawingBtn');
         function expandDrawing(expanded) {
-            stopDrawing(); canvasContainer.parentElement.classList.toggle('drawing-expanded',expanded);
+            stopDrawing(); document.body.classList.toggle('drawing-is-expanded',expanded); canvasContainer.parentElement.classList.toggle('drawing-expanded',expanded);
             expandBtn.setAttribute('aria-pressed',String(expanded)); expandBtn.textContent=expanded ? '원래 크기' : '넓게 쓰기';
         }
         expandBtn.addEventListener('click',()=>expandDrawing(expandBtn.getAttribute('aria-pressed')!=='true'));
@@ -532,7 +588,7 @@
                 out.stroke();
             }
             out.drawImage(ink,0,0);
-            const link=document.createElement('a'); link.download=`필기-${document.getElementById('drawingDate').value || '메모'}.png`; link.href=output.toDataURL(); link.click();
+            const link=document.createElement('a'); link.download=`필기-${document.getElementById('drawingDate').value || '메모'}-${pageIndex+1}페이지.png`; link.href=output.toDataURL(); link.click();
         });
         resetHistory();
 
@@ -679,7 +735,7 @@
         let storageReadable = true;
         try {
             const saved = JSON.parse(localStorage.getItem(storageKey) || '[]');
-            if (!Array.isArray(saved) || saved.some(n => !n || typeof n.id !== 'string' || !['text','drawing'].includes(n.type) || !/^\d{4}-\d{2}-\d{2}$/.test(n.date) || typeof n.content !== 'string' || typeof n.preview !== 'string')) throw new Error('Invalid notes');
+            if (!Array.isArray(saved) || saved.some(n => !n || typeof n.id !== 'string' || !['text','drawing'].includes(n.type) || !/^\d{4}-\d{2}-\d{2}$/.test(n.date) || typeof n.content !== 'string' || typeof n.preview !== 'string' || (n.pages !== undefined && (!Array.isArray(n.pages) || !n.pages.length || n.pages.some(page=>typeof page!=='string'))))) throw new Error('Invalid notes');
             notes = saved;
         } catch {
             storageReadable = false;
@@ -714,75 +770,120 @@
                 card.append(kind,preview); card.addEventListener('click',() => openEditor(note)); group.append(card);
             });
         }
-        function openEditor(note = null) {
-            stopDrawing();
-            drawingLoad++;
-            contentsView.hidden = true; editorView.hidden = false; navigation.hidden = false;
-            activeTextId = note?.type === 'text' ? note.id : null;
-            activeDrawingId = note?.type === 'drawing' ? note.id : null;
-            textArea.value = note?.type === 'text' ? note.content : '';
-            textPreview.value = note?.type === 'text' ? note.preview : '';
-            drawingPreview.value = note?.type === 'drawing' ? note.preview : '';
-            textDate.value = note?.type === 'text' ? note.date : today();
-            drawingDate.value = note?.type === 'drawing' ? note.date : today();
-            summaryContainer.classList.add('hidden'); summaryContent.replaceChildren();
-            saveStatus.textContent = '';
-            document.getElementById('paperStyle').value = ['grid','ruled','plain'].includes(note?.paper) ? note.paper : 'grid';
-            canvasContainer.dataset.paper = document.getElementById('paperStyle').value;
-            resetInk(); initCanvas();
-            canvas.style.pointerEvents = note?.type === 'drawing' ? 'none' : '';
-            document.getElementById('saveDrawingBtn').disabled = note?.type === 'drawing';
-            if (note?.type === 'drawing') {
-                const version = drawingLoad;
-                const image = new Image();
-                image.onload = () => {
-                    if (version !== drawingLoad) return;
-                    inkCtx.drawImage(image,0,0,ink.width,ink.height);
-                    resetHistory(); renderInk(); rememberSaved('drawing');
-                    canvas.style.pointerEvents = '';
-                    document.getElementById('saveDrawingBtn').disabled = false;
-                };
-                image.onerror = () => {
-                    if (version === drawingLoad) showModal('필기 복원 실패','필기 이미지를 읽지 못했습니다. 원본을 보호하기 위해 필기 저장을 중지했습니다. 목차로 돌아가 다시 열어주세요.');
-                };
-                image.src = note.content;
-            }
-            rememberSaved('text'); rememberSaved('drawing');
+        let editorType='text', pages=[], pageIndex=0, pageLoading=false, pageLoadToken=0;
+        function snapshotPages() {
+            const snapshot=pages.slice();
+            if(!pageLoading && snapshot.length) snapshot[pageIndex]=exportInk();
+            return snapshot;
+        }
+        function updatePages() {
+            document.getElementById('pageIndicator').textContent=`${pageIndex+1} / ${pages.length}`;
+            document.getElementById('previousPageBtn').disabled=pageLoading || pageIndex===0;
+            document.getElementById('nextPageBtn').disabled=pageLoading || pageIndex>=pages.length-1;
+            document.getElementById('addPageBtn').disabled=pageLoading;
+            document.getElementById('saveDrawingBtn').disabled=pageLoading;
+            document.querySelector('.drawing-toolbar').inert=pageLoading;
+            canvas.style.pointerEvents=pageLoading ? 'none' : '';
+        }
+        function loadPage(index,initial=false) {
+            const token=++pageLoadToken;
+            pageIndex=index; pageLoading=true; updatePages();
+            const image=new Image();
+            image.onload=()=>{
+                if(token!==pageLoadToken) return;
+                inkCtx.clearRect(0,0,ink.width,ink.height);
+                // Legacy landscape drawings retain their proportions on A4 paper.
+                const scale=Math.min(ink.width/image.naturalWidth,ink.height/image.naturalHeight);
+                inkCtx.drawImage(image,0,0,image.naturalWidth*scale,image.naturalHeight*scale);
+                pageLoading=false; pages[pageIndex]=exportInk();
+                resetHistory(); renderInk(); updatePages();
+                if(initial) rememberSaved('drawing');
+            };
+            image.onerror=()=>{
+                if(token!==pageLoadToken) return;
+                // Keep source page data and prevent saving an incomplete document.
+                showModal('페이지 복원 실패','필기 이미지를 읽지 못했습니다. 원본을 보호하기 위해 저장을 중지했습니다. 목차로 돌아가 다시 열어주세요.');
+            };
+            image.src=pages[index];
+        }
+        function goToPage(index) {
+            if(pageLoading || index<0 || index>=pages.length) return;
+            stopDrawing(); pages[pageIndex]=exportInk(); loadPage(index);
+            canvasContainer.scrollIntoView({block:'start'});
+        }
+        document.getElementById('previousPageBtn').addEventListener('click',()=>goToPage(pageIndex-1));
+        document.getElementById('nextPageBtn').addEventListener('click',()=>goToPage(pageIndex+1));
+        document.getElementById('addPageBtn').addEventListener('click',()=>{
+            if(pageLoading) return;
+            stopDrawing(); pages[pageIndex]=exportInk(); resetInk();
+            pages.push(exportInk()); pageIndex=pages.length-1; updatePages();
+            canvasContainer.scrollIntoView({block:'start'});
+        });
+        function openEditor(note=null,type='text') {
+            stopDrawing(); expandDrawing(false); stopRecording();
+            drawingLoad++; pageLoadToken++;
+            editorType=note?.type || type;
+            toggleNewMenu(false);
+            contentsView.hidden=true; editorView.hidden=false; navigation.hidden=false;
+            document.getElementById('textPanel').hidden=editorType!=='text';
+            drawingPanel.hidden=editorType!=='drawing';
+            document.getElementById('textAiTools').hidden=editorType!=='text';
+            activeTextId=note?.type==='text' ? note.id : null;
+            activeDrawingId=note?.type==='drawing' ? note.id : null;
+            textArea.value=note?.type==='text' ? note.content : '';
+            textPreview.value=note?.type==='text' ? note.preview : '';
+            drawingPreview.value=note?.type==='drawing' ? note.preview : '';
+            textDate.value=note?.type==='text' ? note.date : today();
+            drawingDate.value=note?.type==='drawing' ? note.date : today();
+            summaryContainer.classList.add('hidden'); summaryContent.replaceChildren(); saveStatus.textContent='';
+            document.getElementById('paperStyle').value=['grid','ruled','plain'].includes(note?.paper) ? note.paper : 'grid';
+            canvasContainer.dataset.paper=document.getElementById('paperStyle').value;
+            pageLoading=false; pageIndex=0; resetInk(); initCanvas();
+            pages=note?.type==='drawing' ? (note.pages?.slice() || [note.content]) : [exportInk()];
+            updatePages(); rememberSaved('text'); rememberSaved('drawing');
+            if(note?.type==='drawing') loadPage(0,true);
             window.scrollTo(0,0);
         }
+
         function saveNote(type) {
-            if (type === 'drawing') stopDrawing();
+            if (type === 'drawing') { if(pageLoading) return; stopDrawing(); }
             const dateInput = type === 'text' ? textDate : drawingDate;
             if (!dateInput.reportValidity()) return;
             if (type === 'text' && !textArea.value.trim()) { showModal('내용 필요','텍스트 메모를 작성해주세요.'); return; }
             if (!storageReadable) { showModal('저장 불가','기존 메모를 읽을 수 없어 저장할 수 없습니다. 브라우저 저장소 설정을 확인해주세요.'); return; }
             const id = (type === 'text' ? activeTextId : activeDrawingId) || crypto.randomUUID();
-            const note = {id,type,date:dateInput.value,content:type === 'text' ? textArea.value : exportInk(),preview:oneLine(type === 'text' ? textPreview.value : drawingPreview.value),updatedAt:new Date().toISOString(),...(type === 'drawing' ? {paper:document.getElementById('paperStyle').value} : {})};
+            const note = {id,type,date:dateInput.value,content:type === 'text' ? textArea.value : snapshotPages()[0],preview:oneLine(type === 'text' ? textPreview.value : drawingPreview.value),updatedAt:new Date().toISOString(),...(type === 'drawing' ? {paper:document.getElementById('paperStyle').value,pages:snapshotPages(),drawingFormat:'a4-v1'} : {})};
             const next = notes.filter(n => n.id !== id).concat(note);
             try { localStorage.setItem(storageKey,JSON.stringify(next)); }
             catch { showModal('저장 실패','브라우저 저장 공간이 부족하거나 저장이 차단되었습니다. 현재 내용을 유지한 채 저장소 설정을 확인해주세요.'); return; }
             notes = next;
             if (type === 'text') activeTextId = id; else activeDrawingId = id;
-            saveStatus.textContent = `${type === 'text' ? '텍스트' : '필기'} 메모를 저장했습니다. 다른 메모는 해당 저장 버튼으로 저장해주세요.`;
+            saveStatus.textContent = `${type === 'text' ? '텍스트' : '필기'} 메모를 저장했습니다. 목차에서 저장된 메모를 확인할 수 있습니다.`;
             // Each section is saved independently; navigation checks both current values.
             rememberSaved(type);
         }
         let savedText = '', savedDrawing = '';
         function sectionState(type) {
-            return type === 'text' ? JSON.stringify([textArea.value,textDate.value,textPreview.value]) : JSON.stringify([exportInk(),drawingDate.value,drawingPreview.value,document.getElementById('paperStyle').value]);
+            return type === 'text' ? JSON.stringify([textArea.value,textDate.value,textPreview.value]) : JSON.stringify([snapshotPages(),drawingDate.value,drawingPreview.value,document.getElementById('paperStyle').value]);
         }
         function rememberSaved(type) { if (type === 'text') savedText = sectionState(type); else savedDrawing = sectionState(type); }
-        function hasChanges() { return sectionState('text') !== savedText || sectionState('drawing') !== savedDrawing; }
-        document.getElementById('newNoteBtn').addEventListener('click',() => openEditor());
+        function hasChanges() { return sectionState(editorType) !== (editorType==='text' ? savedText : savedDrawing); }
+        const newNoteBtn=document.getElementById('newNoteBtn'), newNoteMenu=document.getElementById('newNoteMenu');
+        function toggleNewMenu(open) { newNoteMenu.hidden=!open; newNoteBtn.setAttribute('aria-expanded',String(open)); }
+        newNoteBtn.addEventListener('click',()=>{ const open=newNoteMenu.hidden; toggleNewMenu(open); if(open) document.getElementById('newTextNoteBtn').focus(); });
+        document.getElementById('newTextNoteBtn').addEventListener('click',()=>openEditor(null,'text'));
+        document.getElementById('newDrawingNoteBtn').addEventListener('click',()=>openEditor(null,'drawing'));
+        document.addEventListener('pointerdown',e=>{ if(!newNoteMenu.contains(e.target) && !newNoteBtn.contains(e.target)) toggleNewMenu(false); });
+        document.addEventListener('keydown',e=>{ if(e.key==='Escape' && !newNoteMenu.hidden) { toggleNewMenu(false); newNoteBtn.focus(); } });
         document.getElementById('saveTextBtn').addEventListener('click',() => saveNote('text'));
         document.getElementById('saveDrawingBtn').addEventListener('click',() => saveNote('drawing'));
         document.getElementById('backToContentsBtn').addEventListener('click',() => {
             if (hasChanges() && !window.confirm('저장하지 않은 변경사항이 있습니다. 저장하지 않고 목차로 이동할까요?')) return;
-            stopRecording(); drawingLoad++;
+            stopRecording(); stopDrawing(); expandDrawing(false); drawingLoad++; pageLoadToken++;
             editorView.hidden = true; navigation.hidden = true; contentsView.hidden = false; renderContents();
         });
         window.addEventListener('beforeunload',event => {
-            if (!editorView.hidden && hasChanges()) { event.preventDefault(); event.returnValue = ''; }
+            if ((!editorView.hidden && (hasChanges() || pageLoading)) || window.hasPendingAudio?.()) { event.preventDefault(); event.returnValue = ''; }
         });
         renderContents();
 
