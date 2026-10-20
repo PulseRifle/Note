@@ -6,8 +6,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 (async () => {
     const server = http.createServer((req, res) => {
-        res.setHeader('Content-Type', 'text/html; charset=utf-8');
-        res.end(fs.readFileSync(path.join(__dirname, '..', 'index.html')));
+        const file=req.url==='/recording.js' ? 'recording.js' : 'index.html';
+        res.setHeader('Content-Type',file.endsWith('.js') ? 'application/javascript' : 'text/html; charset=utf-8');
+        res.end(fs.readFileSync(path.join(__dirname, '..',file)));
     });
     await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
     let browser;
@@ -20,13 +21,15 @@ const path = require('node:path');
         await page.route('https://cdn.tailwindcss.com/**', route => route.fulfill({body: '', contentType: 'application/javascript'}));
         await page.goto(`http://127.0.0.1:${server.address().port}`);
         await page.locator('#newNoteBtn').click();
+        await page.locator('#newDrawingNoteBtn').click();
+        await page.locator('.drawing-options summary').click();
         const cdp = await page.context().newCDPSession(page);
         async function stroke(tool, pressure, start, end) {
             await page.locator(`[data-tool="${tool}"]`).click();
             await page.locator('#clearCanvasBtn').click();
-            await page.locator('#drawingCanvas').scrollIntoViewIfNeeded();
+            await page.locator('#drawingCanvas').evaluate(c=>window.scrollTo(0,window.scrollY+c.getBoundingClientRect().top-300));
             const box = await page.locator('#drawingCanvas').boundingBox();
-            const coords = p => ({x: box.x + p[0] * box.width / 1000, y: box.y + p[1] * box.height / 600});
+            const coords = p => ({x: box.x + p[0] * box.width / 840, y: box.y + p[1] * box.height / 1188});
             await cdp.send('Input.dispatchMouseEvent', {type:'mousePressed', ...coords(start), button:'left', buttons:1, pointerType:'pen', force:pressure});
             for (let i=1;i<=15;i++) {
                 const t=i/15;
@@ -53,7 +56,7 @@ const path = require('node:path');
         await page.waitForTimeout(100);
         assert.equal(await page.evaluate(()=>exportInk()),inkBeforeResize);
         await page.locator('#stylusOnly').check();
-        await page.locator('#drawingCanvas').scrollIntoViewIfNeeded();
+        await page.locator('#drawingCanvas').evaluate(c=>window.scrollTo(0,window.scrollY+c.getBoundingClientRect().top-300));
         const b=await page.locator('#drawingCanvas').boundingBox();
         const x=b.x+60,y=b.y+80;
         const before=await page.evaluate(()=>({ink:exportInk(),scroll:document.scrollingElement.scrollTop}));
