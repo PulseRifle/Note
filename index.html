@@ -337,7 +337,7 @@
         const inkCtx = ink.getContext('2d', {willReadFrequently:true});
         const strokeLayer = document.createElement('canvas'); strokeLayer.width = ink.width; strokeLayer.height = ink.height;
         const strokeCtx = strokeLayer.getContext('2d');
-        const sizes = {pen:3,fountain:5,pencil:2,highlighter:22,eraser:24,line:3,rectangle:3,ellipse:3};
+        const sizes = {pen:3,fountain:7,pencil:2,highlighter:22,eraser:24,line:3,rectangle:3,ellipse:3};
         const sizeInput = document.getElementById('penSize');
         const undoBtn = document.getElementById('undoDrawingBtn');
         const redoBtn = document.getElementById('redoDrawingBtn');
@@ -367,7 +367,9 @@
         new ResizeObserver(initCanvas).observe(canvasContainer);
         function point(e) {
             const rect = canvas.getBoundingClientRect();
-            return {x:(e.clientX-rect.left)*ink.width/rect.width,y:(e.clientY-rect.top)*ink.height/rect.height,p:e.pointerType==='pen' ? Math.max(.1,e.pressure || .5) : .5};
+            // A real zero is light contact, not a missing pressure measurement.
+            const pressure = e.pointerType === 'pen' && Number.isFinite(e.pressure) ? Math.max(.02,Math.min(1,e.pressure)) : .5;
+            return {x:(e.clientX-rect.left)*ink.width/rect.width,y:(e.clientY-rect.top)*ink.height/rect.height,p:pressure};
         }
         function paintStroke() {
             strokeCtx.clearRect(0,0,ink.width,ink.height);
@@ -381,7 +383,27 @@
                 if(currentTool==='ellipse') strokeCtx.ellipse((first.x+last.x)/2,(first.y+last.y)/2,Math.abs(last.x-first.x)/2,Math.abs(last.y-first.y)/2,0,0,Math.PI*2);
                 strokeCtx.stroke(); return;
             }
-            const width = p => currentLineWidth * (currentTool==='fountain' ? .3+p*1.7 : currentTool==='pencil' ? .5+p*.7 : currentTool==='pen' ? .7+p*.6 : 1);
+            // Sweep a broad, thin nib at a fixed angle. Its shape, rather than a
+            // round stroke, creates the thick/thin contrast of a calligraphy pen.
+            if (currentTool === 'fountain') {
+                const stamp = p => {
+                    const radius = currentLineWidth * (.25 + 1.75*Math.pow(p.p,.75));
+                    strokeCtx.beginPath();
+                    strokeCtx.ellipse(p.x,p.y,radius,Math.max(.3,radius*.12),-Math.PI/4,0,Math.PI*2);
+                    strokeCtx.fill();
+                };
+                stamp(first);
+                for(let i=1;i<points.length;i++) {
+                    const a=points[i-1],b=points[i];
+                    const steps=Math.max(1,Math.ceil(Math.hypot(b.x-a.x,b.y-a.y)/.6));
+                    for(let step=1;step<=steps;step++) {
+                        const t=step/steps;
+                        stamp({x:a.x+(b.x-a.x)*t,y:a.y+(b.y-a.y)*t,p:a.p+(b.p-a.p)*t});
+                    }
+                }
+                return;
+            }
+            const width = p => currentLineWidth * (currentTool==='pencil' ? .15+1.85*Math.pow(p,.8) : currentTool==='pen' ? .2+2.2*Math.pow(p,.8) : 1);
             strokeCtx.beginPath(); strokeCtx.arc(first.x,first.y,width(first.p)/2,0,Math.PI*2); strokeCtx.fill();
             for(let i=1;i<points.length;i++) {
                 const a=points[i-1], b=points[i];
@@ -396,19 +418,23 @@
         }
         function startDrawing(e) {
             if (pointerId!==null || (e.pointerType==='mouse' && e.button!==0) || (document.getElementById('stylusOnly').checked && e.pointerType!=='pen')) return;
-            e.preventDefault(); pointerId=e.pointerId; canvas.setPointerCapture(pointerId);
+            e.preventDefault(); scrollGesture=null; pointerId=e.pointerId; canvas.setPointerCapture(pointerId);
             isDrawing=true; points=[point(e)]; paintStroke(); renderInk();
         }
         function draw(e) {
             if (!isDrawing || e.pointerId!==pointerId) return;
             e.preventDefault();
             const events=e.getCoalescedEvents?.() || [];
-            for(const sample of events.length ? events : [e]) points.push(point(sample));
+            for(const sample of events.length ? events : [e]) {
+                const next = point(sample);
+                next.p = points[points.length-1].p*.35 + next.p*.65;
+                points.push(next);
+            }
             paintStroke(); renderInk();
         }
         function stopDrawing(e) {
             if(!isDrawing || (e && e.pointerId!==pointerId)) return;
-            if(e?.type==='pointerup') { points.push(point(e)); paintStroke(); }
+            if(e?.type==='pointerup') { const end=point(e); end.p=points[points.length-1].p; points.push(end); paintStroke(); }
             compositeStroke(inkCtx,ink.width,ink.height);
             isDrawing=false;
             if (canvas.hasPointerCapture(pointerId)) canvas.releasePointerCapture(pointerId);
@@ -446,10 +472,43 @@
             stopDrawing(); inkCtx.clearRect(0,0,ink.width,ink.height); commitInk(); renderInk();
         });
         document.getElementById('paperStyle').addEventListener('change',e=>canvasContainer.dataset.paper=e.target.value);
-        document.getElementById('stylusOnly').addEventListener('change',e=>{
-            stopDrawing(); canvas.style.touchAction=e.target.checked ? 'pan-y' : 'none';
-            document.getElementById('drawingHint').textContent=e.target.checked ? '스타일러스로 필기하고 손가락으로 화면을 스크롤하세요.' : '손가락·마우스·스타일러스로 필기하세요. 도형은 끌어서 그립니다.';
+        // Keep touch-action:none for pens as well as fingers. Native pan-y can
+        // cancel a pen stroke; scroll two fingers explicitly instead.
+        const stylusOnly = document.getElementById('stylusOnly');
+        let scrollGesture = null;
+        function fingers(e) { return Array.from(e.touches).filter(t=>t.touchType!=='stylus'); }
+        function gesturePosition(touches) {
+            return {ids:touches.map(t=>t.identifier).sort((a,b)=>a-b).join(','),y:(touches[0].clientY+touches[1].clientY)/2};
+        }
+        function handleTouch(e) {
+            if (!stylusOnly.checked) return;
+            const touches=fingers(e);
+            const control=e.target.closest('button,input,select,label,a');
+            // Preserve taps on tools and the mode checkbox on iOS.
+            if (e.cancelable && (!control || e.type==='touchmove' || touches.length>=2)) e.preventDefault();
+            if (isDrawing || touches.length!==2) { scrollGesture=null; return; }
+            const next=gesturePosition(touches);
+            if (e.type==='touchmove' && scrollGesture?.ids===next.ids) {
+                const expanded=canvasContainer.parentElement;
+                const scroller=expanded.classList.contains('drawing-expanded') ? expanded : document.scrollingElement;
+                scroller.scrollTop += scrollGesture.y-next.y;
+            }
+            scrollGesture=next;
+        }
+        // The two-finger rule covers the whole handwriting panel, including
+        // the toolbar, without changing scrolling in the text editor.
+        const drawingPanel=canvasContainer.parentElement;
+        drawingPanel.style.touchAction='none';
+        for(const type of ['touchstart','touchmove','touchend','touchcancel']) {
+            drawingPanel.addEventListener(type,handleTouch,{passive:false});
+        }
+        stylusOnly.addEventListener('change',e=>{
+            stopDrawing(); scrollGesture=null;
+            drawingPanel.style.touchAction=e.target.checked ? 'none' : 'auto';
+            canvas.style.touchAction='none';
+            document.getElementById('drawingHint').textContent=e.target.checked ? '펜으로 필기 · 두 손가락으로 위아래 스크롤 · 한 손가락은 필기와 스크롤을 하지 않습니다.' : '손가락·마우스·스타일러스로 필기하세요. 필압 지원 펜은 누르는 힘에 따라 굵기가 달라집니다.';
         });
+        drawingPanel.style.touchAction=stylusOnly.checked ? 'none' : 'auto';
         const expandBtn=document.getElementById('expandDrawingBtn');
         function expandDrawing(expanded) {
             stopDrawing(); canvasContainer.parentElement.classList.toggle('drawing-expanded',expanded);
