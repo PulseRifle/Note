@@ -2,6 +2,7 @@
 (() => {
     const button = document.getElementById('audioRecordBtn');
     const status = document.getElementById('audioRecordStatus');
+    button.title = 'M4A 음성 녹음';
     const list = document.getElementById('recordingList');
     const recordings = new Map();
     let state = 'idle', recorder = null, stream = null, timer = null;
@@ -44,7 +45,7 @@
             player.setAttribute('aria-label', `${label.textContent} 녹음 재생`);
             const download = document.createElement('a'); download.href = url;
             download.download = `녹음-${new Date(recording.createdAt).toISOString().replace(/[:.]/g,'-')}.${extension(recording.blob.type)}`;
-            download.textContent = '↓ 다운로드';
+            download.textContent = `↓ ${extension(recording.blob.type).toUpperCase()} 다운로드`;
             entry.append(label, player, download);
             if (!recording.persisted) {
                 const warning = document.createElement('span'); warning.textContent = '저장되지 않음 · 페이지를 닫기 전에 다운로드해주세요.';
@@ -74,13 +75,19 @@
             status.textContent = '이 브라우저는 녹음을 지원하지 않습니다. HTTPS 환경에서 지원 브라우저를 사용해주세요.';
             return;
         }
+        // M4A is an audio-only MP4 container. Prefer AAC where available;
+        // never disguise WebM data by changing its filename extension.
+        const mimeType = ['audio/mp4;codecs=mp4a.40.2','audio/mp4'].find(type => MediaRecorder.isTypeSupported(type));
+        if (!mimeType) {
+            status.textContent = '이 브라우저는 M4A 녹음을 지원하지 않습니다. 최신 Safari 등 M4A 녹음을 지원하는 브라우저를 사용해주세요.';
+            return;
+        }
         state = 'requesting'; button.disabled = true; status.textContent = '마이크 권한을 요청하고 있습니다…';
         try {
             stream = await navigator.mediaDevices.getUserMedia({audio: true});
-            const mimeType = ['audio/webm;codecs=opus','audio/mp4','audio/webm'].find(type => MediaRecorder.isTypeSupported(type));
-            recorder = new MediaRecorder(stream, mimeType ? {mimeType} : undefined);
+            recorder = new MediaRecorder(stream, {mimeType});
             const chunks = []; startedAt = Date.now(); const createdAt = startedAt;
-            const recordingMime = recorder.mimeType;
+            const recordingMime = recorder.mimeType || mimeType;
             recorder.ondataavailable = event => { if (event.data.size) chunks.push(event.data); };
             recorder.onerror = () => {
                 status.textContent = '녹음이 중단되었습니다. 수집한 음성을 저장합니다.';
@@ -88,14 +95,14 @@
             };
             recorder.onstop = async () => {
                 releaseMicrophone(); state = 'saving'; button.disabled = true;
-                const blob = new Blob(chunks, {type: recordingMime || chunks[0]?.type || 'audio/webm'});
+                const blob = new Blob(chunks, {type: recordingMime});
                 if (!blob.size) { idle('녹음된 음성이 없습니다. 마이크를 확인해주세요.'); return; }
                 const recording = {id: crypto.randomUUID(), createdAt, blob};
                 recordings.set(recording.id, {...recording, persisted: false}); renderRecordings();
                 try {
                     await saveAudio(recording);
                     recordings.get(recording.id).persisted = true;
-                    idle('녹음을 저장했습니다. 녹음 내역에서 재생할 수 있습니다.');
+                    idle('M4A 녹음을 저장했습니다. 녹음 내역에서 재생할 수 있습니다.');
                 } catch {
                     idle('녹음 저장에 실패했습니다. 녹음 내역에서 파일을 다운로드해주세요.');
                 }
